@@ -9,8 +9,9 @@ local _rate_measure_default_settings = {
     _port                   = 6379,                 -- redis database port
     _timeouts               = { 1000, 1000, 1000 }, -- connection, read, write timeout
     _instance_capacity      = 1,                    -- instance capacity
-    _retention              = 5000,                 -- keep data for 5s
+    _retention              = 10000,                 -- keep data for 5s
     _key_prefix             = "req:",               -- timeseries prefix
+    _duration               = 5000                  -- duration of aggregation functions
     _debug                  = true
 }
 
@@ -28,7 +29,11 @@ local function _rate_measure_measure(self,ipaddr)
     end
     
     self._redis:init_pipeline(1)
-    self._redis:ts():add(self._key_prefix..ipaddr, ngx.time(), 1, 'RETENTION '..self._retention..' ENCODING UNCOMPRESSED CHUNK_SIZE 4096 DUPLICATE_POLICY SUM')
+    self._redis:ts():create(self._key_prefix..ipaddr..":sum",'LABELS', 'label', 'reqvtime' )
+    self._redis:ts():add(self._key_prefix..ipaddr..":live", ngx.time(), 1, 'RETENTION',self._retention,'ENCODING', 'UNCOMPRESSED',
+                            'CHUNK_SIZE', 4096, 'DUPLICATE_POLICY', 'SUM', 'LABELS', 'label', 'requests')
+    self._redis.ts():createrule(self._key_prefix..ipaddr..":live",self._key_prefix..ipaddr..":sum", 'AGGREGATION', 'SUM', self._duration)
+    
     local results, err = self._redis:commit_pipeline()
     
     if results == nil and err ~= nill then
